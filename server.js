@@ -254,6 +254,65 @@ app.put('/api/influencers/:id', authMiddleware, teamOnly, (req, res) => {
   res.json({ success: true });
 });
 
+// Self-update profile (influencer updating their own record)
+app.put('/api/influencers/:id/profile', authMiddleware, (req, res) => {
+  const influencer = db.prepare('SELECT * FROM influencers WHERE id = ?').get(req.params.id);
+  if (!influencer) return res.status(404).json({ error: 'Not found' });
+
+  // Influencers can only edit themselves; team can edit anyone
+  if (req.user.role !== 'team' && req.user.id !== influencer.id) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const {
+    name, email, phone,
+    instagram, tiktok, youtube, linkedin,
+    instagram_followers, tiktok_followers, youtube_followers, linkedin_followers,
+    age_range, audience_description, why_lovepop,
+    new_password
+  } = req.body;
+
+  // Email uniqueness check (skip if unchanged)
+  if (email && email !== influencer.email) {
+    const conflict = db.prepare('SELECT id FROM influencers WHERE email = ? AND id != ?').get(email, req.params.id);
+    if (conflict) return res.status(400).json({ error: 'That email is already in use.' });
+  }
+
+  let password_hash = influencer.password_hash;
+  if (new_password && new_password.length >= 6) {
+    password_hash = bcrypt.hashSync(new_password, 10);
+  }
+
+  db.prepare(`
+    UPDATE influencers SET
+      name=?, email=?, phone=?,
+      instagram=?, tiktok=?, youtube=?, linkedin=?,
+      instagram_followers=?, tiktok_followers=?, youtube_followers=?, linkedin_followers=?,
+      age_range=?, audience_description=?, why_lovepop=?,
+      password_hash=?, updated_at=datetime('now')
+    WHERE id=?
+  `).run(
+    name              ?? influencer.name,
+    email             ?? influencer.email,
+    phone             ?? influencer.phone,
+    instagram         ?? influencer.instagram,
+    tiktok            ?? influencer.tiktok,
+    youtube           ?? influencer.youtube,
+    linkedin          ?? influencer.linkedin,
+    parseInt(instagram_followers) >= 0 ? parseInt(instagram_followers) : influencer.instagram_followers,
+    parseInt(tiktok_followers)    >= 0 ? parseInt(tiktok_followers)    : influencer.tiktok_followers,
+    parseInt(youtube_followers)   >= 0 ? parseInt(youtube_followers)   : influencer.youtube_followers,
+    parseInt(linkedin_followers)  >= 0 ? parseInt(linkedin_followers)  : influencer.linkedin_followers,
+    age_range            ?? influencer.age_range,
+    audience_description ?? influencer.audience_description,
+    why_lovepop          ?? influencer.why_lovepop,
+    password_hash,
+    req.params.id
+  );
+
+  res.json({ success: true });
+});
+
 // Approve/Reject actions
 app.post('/api/influencers/:id/approve', authMiddleware, teamOnly, (req, res) => {
   const { password } = req.body;

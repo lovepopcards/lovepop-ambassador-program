@@ -1195,6 +1195,12 @@ const App = (() => {
     });
 
     await Promise.all([loadCampaigns(), loadInfluencerProfile()]);
+
+    // Set avatar initials
+    const initials = (currentUser.name || '?').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+    const avatarEl = document.getElementById('inf-avatar-initials');
+    if (avatarEl) avatarEl.textContent = initials;
+
     renderInfluencerDashboard();
     infNav('dashboard');
   }
@@ -1228,6 +1234,119 @@ const App = (() => {
     }
     if (view === 'posts') renderMyPosts();
     if (view === 'submit') setupSubmitForm();
+    if (view === 'profile') populateProfileForm();
+  }
+
+  // ── Profile Edit ────────────────────────────────────────────
+  function populateProfileForm() {
+    if (!myProfile) return;
+    const p = myProfile;
+
+    // Hero card
+    const initials = (p.name || '?').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+    const heroAvatar = document.getElementById('profile-hero-avatar');
+    if (heroAvatar) heroAvatar.textContent = initials;
+    const heroName = document.getElementById('profile-hero-name');
+    if (heroName) heroName.textContent = p.name || '';
+    const heroTier = document.getElementById('profile-hero-tier');
+    if (heroTier) heroTier.textContent = `${TIER_GEMS[p.tier || 'bronze']} ${TIER_LABELS[p.tier || 'bronze']} Ambassador`;
+    const heroSince = document.getElementById('profile-hero-since');
+    if (heroSince && p.created_at) {
+      const d = new Date(p.created_at);
+      heroSince.textContent = `Partner since ${d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
+    }
+
+    // Personal info
+    setVal('profile-name', p.name);
+    setVal('profile-email', p.email);
+    setVal('profile-phone', p.phone);
+    setVal('profile-age-range', p.age_range);
+    setVal('profile-audience', p.audience_description);
+    setVal('profile-why', p.why_lovepop);
+
+    // Handles
+    setVal('profile-instagram', p.instagram);
+    setVal('profile-instagram-followers', p.instagram_followers || '');
+    setVal('profile-tiktok', p.tiktok);
+    setVal('profile-tiktok-followers', p.tiktok_followers || '');
+    setVal('profile-youtube', p.youtube);
+    setVal('profile-youtube-followers', p.youtube_followers || '');
+    setVal('profile-linkedin', p.linkedin);
+    setVal('profile-linkedin-followers', p.linkedin_followers || '');
+
+    // Clear password fields and messages
+    setVal('profile-new-password', '');
+    setVal('profile-confirm-password', '');
+    const errEl = document.getElementById('profile-save-error');
+    const okEl  = document.getElementById('profile-save-success');
+    if (errEl) errEl.style.display = 'none';
+    if (okEl)  okEl.style.display  = 'none';
+  }
+
+  function setVal(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.value = val == null ? '' : val;
+  }
+
+  async function saveProfile(e) {
+    e.preventDefault();
+    const errEl = document.getElementById('profile-save-error');
+    const okEl  = document.getElementById('profile-save-success');
+    const btn   = document.getElementById('profile-save-btn');
+    errEl.style.display = 'none';
+    okEl.style.display  = 'none';
+
+    const newPw  = document.getElementById('profile-new-password').value;
+    const confPw = document.getElementById('profile-confirm-password').value;
+    if (newPw && newPw !== confPw) {
+      errEl.textContent = 'Passwords do not match.';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      const payload = {
+        name:                 document.getElementById('profile-name').value.trim(),
+        email:                document.getElementById('profile-email').value.trim(),
+        phone:                document.getElementById('profile-phone').value.trim(),
+        age_range:            document.getElementById('profile-age-range').value,
+        audience_description: document.getElementById('profile-audience').value.trim(),
+        why_lovepop:          document.getElementById('profile-why').value.trim(),
+        instagram:            document.getElementById('profile-instagram').value.trim(),
+        instagram_followers:  parseInt(document.getElementById('profile-instagram-followers').value) || 0,
+        tiktok:               document.getElementById('profile-tiktok').value.trim(),
+        tiktok_followers:     parseInt(document.getElementById('profile-tiktok-followers').value) || 0,
+        youtube:              document.getElementById('profile-youtube').value.trim(),
+        youtube_followers:    parseInt(document.getElementById('profile-youtube-followers').value) || 0,
+        linkedin:             document.getElementById('profile-linkedin').value.trim(),
+        linkedin_followers:   parseInt(document.getElementById('profile-linkedin-followers').value) || 0,
+      };
+      if (newPw) payload.new_password = newPw;
+
+      const updated = await api(`/api/influencers/${currentUser.id}/profile`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+      if (!updated) return;
+
+      // Refresh local profile + header name
+      myProfile = { ...myProfile, ...payload };
+      currentUser.name = payload.name;
+      document.getElementById('inf-user-name').textContent = payload.name;
+      const initials = payload.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+      const avatarEl = document.getElementById('inf-avatar-initials');
+      if (avatarEl) avatarEl.textContent = initials;
+      populateProfileForm(); // refresh hero card
+
+      okEl.style.display = 'flex';
+      okEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } catch (err) {
+      errEl.textContent = err.message || 'Failed to save. Please try again.';
+      errEl.style.display = 'block';
+    } finally {
+      btn.disabled = false; btn.textContent = 'Save Changes';
+    }
   }
 
   function renderInfluencerDashboard() {
@@ -1518,6 +1637,7 @@ const App = (() => {
     addBundleEditor, addSkuRow, saveBundlesAndSkus, uploadCampaignAsset,
     renderPostsTable, updatePost, setPostFilter,
     handleScreenshotSelect, submitPost,
+    saveProfile,
     openModal, closeModal
   };
 })();
