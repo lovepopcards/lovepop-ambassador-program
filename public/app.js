@@ -30,8 +30,14 @@ const App = (() => {
     const headers = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
     const res = await fetch(path, { ...opts, headers: { ...headers, ...(opts.headers || {}) } });
-    if (res.status === 401 || res.status === 403) { logout(); return null; }
     const json = await res.json().catch(() => ({}));
+    if (res.status === 401) {
+      // If we have an active session it's expired — log out silently.
+      // If there's no token it's a failed login attempt — surface the error.
+      if (token) { logout(); return null; }
+      throw new Error(json.error || 'Invalid email or password.');
+    }
+    if (res.status === 403) throw new Error(json.error || 'Access denied.');
     if (!res.ok) throw new Error(json.error || 'Request failed');
     return json;
   }
