@@ -2,6 +2,10 @@
 
 Started 2026-10-22, after the Railway breach. Direct cutover; downtime is fine.
 
+**Live on AWS since 2026-10-22 16:44 UTC** (PR #1, merge `baad409`; conan-edogawa#21). Railway has been
+off since 15:35 UTC and is never restarted. Still open: devops-portal#23 (+ dev → main), data-ml-mono#280,
+delete the Railway project.
+
 ## Why, and what Railway had
 
 | Item | State |
@@ -50,19 +54,31 @@ Random names come from `crypto.randomBytes`. Only images (jpg, png, gif, webp) a
 
 | # | Step | Owner | Done when |
 |---|---|---|---|
-| 1 | Code PR `feat/aws-migration` (this repo): Postgres port, auth split, S3 store, base path, infra/, CircleCI, Dockerfile, tests | us | tests green; local Docker in prod shape + Chrome click-through passed |
-| 2 | data-ml-mono PR: `db_migration/apps/ambassador.yaml` + `.md`; `init-db ambassador` → `.env` `AMBASSADOR_AWS_DATABASE_URL` | us | role + DB exist |
-| 3 | SSM: `python3 infra/scripts/put_ssm_params.py --env-file <data-ml-mono .env>` | user runs | 4/4 ok |
-| 4 | conan-edogawa PR: `ssoAllowedReturnUrls` += `https://admin.lovepop.com/ambassador` | us → DevOps merge | merged, broker accepts |
-| 5 | devops-portal PR (base dev): `ambassador-data-service` + `/ambassador` ssm folder | us → DevOps merge | merged |
-| 6 | CircleCI: Set Up Project on the PR branch + User Key | us in Chrome / user | branch test job green |
-| 7 | Merge #1 (merge commit) → CircleCI build/plan/apply/verify | user | ECS 1/1, `/ambassador/healthz` 200 |
-| 8 | Smoke: anonymous landing + signup; team SSO (user clicks Google); influencer login after approval | us + user | all pass |
-| 9 | Delete the Railway project `lovepop-ambassador-program` (7501f2f1-…) | user | API "Project not found" |
+| 1 | Code PR `feat/aws-migration` (this repo): Postgres port, auth split, S3 store, base path, infra/, CircleCI, Dockerfile, tests | us | tests green; local Docker in prod shape + Chrome click-through passed — **done 16:41 UTC (#1)** |
+| 2 | data-ml-mono PR: `db_migration/apps/ambassador.yaml` + `.md`; `init-db ambassador` → `.env` `AMBASSADOR_AWS_DATABASE_URL` | us | role + DB exist — **role + DB created; PR data-ml-mono#280** |
+| 3 | SSM: `python3 infra/scripts/put_ssm_params.py --env-file <data-ml-mono .env>` | user runs | 4/4 ok — **done, 4/4** |
+| 4 | conan-edogawa PR: `ssoAllowedReturnUrls` += `https://admin.lovepop.com/ambassador` | us → DevOps merge | merged, broker accepts — **#21 merged 16:40; broker accepts 16:44** |
+| 5 | devops-portal PR (base dev): `ambassador-data-service` + `/ambassador` ssm folder | us → DevOps merge | merged — **#23 open** |
+| 6 | CircleCI: Set Up Project on the PR branch + User Key | us in Chrome / user | branch test job green — **done; branch test green** |
+| 7 | Merge #1 (merge commit) → CircleCI build/plan/apply/verify | user | ECS 1/1, `/ambassador/healthz` 200 — **done; ECS 1/1 `ambassador:1`, /healthz `baad409`** |
+| 8 | Smoke: anonymous landing + signup; team SSO (user clicks Google); influencer login after approval | us + user | all pass — **prod: landing, team SSO, S3 upload (below); signup → influencer login tested in local Docker only** |
+| 9 | Delete the Railway project `lovepop-ambassador-program` (7501f2f1-…) | user | API "Project not found" — **pending (user)** |
 
 ## Smoke test
 
 `curl` `/ambassador/healthz` → 200; `/ambassador/` → 200 (public page); `/ambassador/team` → 302 to `authentication.lovepopcards.com/sso/authorize?return_to=https%3A%2F%2Fadmin.lovepop.com%2Fambassador%2Fteam`; `/ambassador/api/influencers` → 401. Chrome: team sign-in lands on the dashboard; signup → approve with a password → influencer login → submit a post with a screenshot → team sees it.
+
+## Smoke test results (2026-10-22)
+
+| Check | Result |
+|---|---|
+| `/ambassador/healthz` | 200 `{"ok":true,"auth":"sso","commit":"baad409"}` |
+| `/ambassador/` | 200, public, assets under `/ambassador/` |
+| `/ambassador/team` | 302 to the broker with `return_to=https://admin.lovepop.com/ambassador/team`; CloudFront `Miss` |
+| API / contracts anonymous | 401 (`Cache-Control: no-store`) |
+| Team token signed with the leaked default secret | 401 as bearer, team cookie and influencer cookie |
+| Team sign-in (Google, signed-in Chrome) | lands on the dashboard; every API call 200 |
+| Upload through the ECS instance role | campaign image written to `s3://prod-segment-model-store/ambassador/uploads/campaigns/`, served back 200; test campaign and object deleted |
 
 ## Rollback
 
