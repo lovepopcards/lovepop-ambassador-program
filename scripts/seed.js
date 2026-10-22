@@ -1,6 +1,13 @@
-const bcrypt = require('bcryptjs');
-const db = require('../database');
+// Demo data for local development only (`npm run seed`); production starts empty and never seeds.
+import bcrypt from 'bcryptjs';
+import { closeDb, initDb, one, q } from '../server/db.js';
 
+// Only the embedded local database: a DATABASE_URL left in a shell can point at a shared prod server.
+if (process.env.NODE_ENV === 'production' || process.env.DATABASE_URL) {
+  console.error('Refusing to seed: demo data goes only into the local embedded database (unset NODE_ENV=production and DATABASE_URL).');
+  process.exit(1);
+}
+await initDb();
 console.log('Seeding database...');
 
 // ── Influencers ───────────────────────────────────────────────
@@ -140,47 +147,45 @@ const passwords = {
 };
 
 for (const inf of influencers) {
-  const existing = db.prepare('SELECT id FROM influencers WHERE email = ?').get(inf.email);
+  const existing = await one('SELECT id FROM influencers WHERE email = $1', [inf.email]);
   if (existing) {
     console.log(`Skipping existing: ${inf.email}`);
     continue;
   }
   const password_hash = passwords[inf.email] ? bcrypt.hashSync(passwords[inf.email], 10) : '';
-  db.prepare(`
+  await q(`
     INSERT INTO influencers (name, email, phone, instagram, tiktok, youtube, linkedin,
       instagram_followers, tiktok_followers, youtube_followers, linkedin_followers,
       why_lovepop, age_range, audience_description, status, tier, total_posts, total_impressions,
       lovepop_contacts, notes, contracts, password_hash)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'[]',?)
-  `).run(
-    inf.name, inf.email, inf.phone || '',
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,'[]',$21)
+  `, [inf.name, inf.email, inf.phone || '',
     inf.instagram || '', inf.tiktok || '', inf.youtube || '', inf.linkedin || '',
     inf.instagram_followers || 0, inf.tiktok_followers || 0,
     inf.youtube_followers || 0, inf.linkedin_followers || 0,
     inf.why_lovepop, inf.age_range, inf.audience_description,
     inf.status, inf.tier, inf.total_posts, inf.total_impressions,
-    inf.lovepop_contacts, inf.notes, password_hash
-  );
+    inf.lovepop_contacts, inf.notes, password_hash]);
   console.log(`Created influencer: ${inf.name}`);
 }
 
 // ── Add contacts for some influencers ─────────────────────────
-const sophieId = db.prepare("SELECT id FROM influencers WHERE email='sophie@example.com'").get()?.id;
-const marcusId = db.prepare("SELECT id FROM influencers WHERE email='marcus@example.com'").get()?.id;
-const amandaId = db.prepare("SELECT id FROM influencers WHERE email='amanda@example.com'").get()?.id;
+const sophieId = (await one("SELECT id FROM influencers WHERE email='sophie@example.com'"))?.id;
+const marcusId = (await one("SELECT id FROM influencers WHERE email='marcus@example.com'"))?.id;
+const amandaId = (await one("SELECT id FROM influencers WHERE email='amanda@example.com'"))?.id;
 
-if (sophieId && !db.prepare('SELECT id FROM influencer_contacts WHERE influencer_id=?').get(sophieId)) {
-  db.prepare(`INSERT INTO influencer_contacts (influencer_id, name, email, phone, role, active) VALUES (?,?,?,?,?,?)`).run(sophieId, 'Sophie Chen', 'sophie@example.com', '617-555-0101', 'Primary Creator', 1);
-  db.prepare(`INSERT INTO influencer_contacts (influencer_id, name, email, phone, role, active) VALUES (?,?,?,?,?,?)`).run(sophieId, 'Lily Chen', 'lily.chen@agency.com', '617-555-0102', 'Talent Manager', 1);
+if (sophieId && !(await one('SELECT id FROM influencer_contacts WHERE influencer_id=$1', [sophieId]))) {
+  await q(`INSERT INTO influencer_contacts (influencer_id, name, email, phone, role, active) VALUES ($1,$2,$3,$4,$5,$6)`, [sophieId, 'Sophie Chen', 'sophie@example.com', '617-555-0101', 'Primary Creator', 1]);
+  await q(`INSERT INTO influencer_contacts (influencer_id, name, email, phone, role, active) VALUES ($1,$2,$3,$4,$5,$6)`, [sophieId, 'Lily Chen', 'lily.chen@agency.com', '617-555-0102', 'Talent Manager', 1]);
 }
-if (marcusId && !db.prepare('SELECT id FROM influencer_contacts WHERE influencer_id=?').get(marcusId)) {
-  db.prepare(`INSERT INTO influencer_contacts (influencer_id, name, email, phone, role, active) VALUES (?,?,?,?,?,?)`).run(marcusId, 'Marcus Webb', 'marcus@example.com', '212-555-0202', 'Primary Creator', 1);
-  db.prepare(`INSERT INTO influencer_contacts (influencer_id, name, email, phone, role, active) VALUES (?,?,?,?,?,?)`).run(marcusId, 'Derek Jones', 'derek@talentco.com', '212-555-0203', 'Booking Agent', 1);
+if (marcusId && !(await one('SELECT id FROM influencer_contacts WHERE influencer_id=$1', [marcusId]))) {
+  await q(`INSERT INTO influencer_contacts (influencer_id, name, email, phone, role, active) VALUES ($1,$2,$3,$4,$5,$6)`, [marcusId, 'Marcus Webb', 'marcus@example.com', '212-555-0202', 'Primary Creator', 1]);
+  await q(`INSERT INTO influencer_contacts (influencer_id, name, email, phone, role, active) VALUES ($1,$2,$3,$4,$5,$6)`, [marcusId, 'Derek Jones', 'derek@talentco.com', '212-555-0203', 'Booking Agent', 1]);
 }
-if (amandaId && !db.prepare('SELECT id FROM influencer_contacts WHERE influencer_id=?').get(amandaId)) {
-  db.prepare(`INSERT INTO influencer_contacts (influencer_id, name, email, phone, role, active) VALUES (?,?,?,?,?,?)`).run(amandaId, 'Amanda Liu', 'amanda@example.com', '206-555-0505', 'Primary Creator', 1);
-  db.prepare(`INSERT INTO influencer_contacts (influencer_id, name, email, phone, role, active) VALUES (?,?,?,?,?,?)`).run(amandaId, 'Creative Agency BKG', 'bookings@bkg.agency', '206-555-0506', 'Brand Partnerships', 1);
-  db.prepare(`INSERT INTO influencer_contacts (influencer_id, name, email, phone, role, active) VALUES (?,?,?,?,?,?)`).run(amandaId, 'Tom Liu', 'tom@liufamily.com', '206-555-0507', 'Business Manager', 0);
+if (amandaId && !(await one('SELECT id FROM influencer_contacts WHERE influencer_id=$1', [amandaId]))) {
+  await q(`INSERT INTO influencer_contacts (influencer_id, name, email, phone, role, active) VALUES ($1,$2,$3,$4,$5,$6)`, [amandaId, 'Amanda Liu', 'amanda@example.com', '206-555-0505', 'Primary Creator', 1]);
+  await q(`INSERT INTO influencer_contacts (influencer_id, name, email, phone, role, active) VALUES ($1,$2,$3,$4,$5,$6)`, [amandaId, 'Creative Agency BKG', 'bookings@bkg.agency', '206-555-0506', 'Brand Partnerships', 1]);
+  await q(`INSERT INTO influencer_contacts (influencer_id, name, email, phone, role, active) VALUES ($1,$2,$3,$4,$5,$6)`, [amandaId, 'Tom Liu', 'tom@liufamily.com', '206-555-0507', 'Business Manager', 0]);
 }
 
 // ── Campaigns ─────────────────────────────────────────────────
@@ -244,18 +249,18 @@ const campaigns = [
 ];
 
 for (const camp of campaigns) {
-  const existing = db.prepare('SELECT id FROM campaigns WHERE name = ?').get(camp.name);
+  const existing = await one('SELECT id FROM campaigns WHERE name = $1', [camp.name]);
   if (existing) { console.log(`Skipping existing campaign: ${camp.name}`); continue; }
-  db.prepare(`
+  await q(`
     INSERT INTO campaigns (name, description, objectives, start_date, end_date, status_override, success_metrics, product_bundles, sku_designations)
-    VALUES (?,?,?,?,?,?,?,?,?)
-  `).run(camp.name, camp.description, camp.objectives, camp.start_date, camp.end_date, camp.status_override, camp.success_metrics, camp.product_bundles, camp.sku_designations);
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+  `, [camp.name, camp.description, camp.objectives, camp.start_date, camp.end_date, camp.status_override, camp.success_metrics, camp.product_bundles, camp.sku_designations]);
   console.log(`Created campaign: ${camp.name}`);
 }
 
 // ── Post Submissions ──────────────────────────────────────────
-const allInfluencers = db.prepare("SELECT id, name FROM influencers WHERE status='approved'").all();
-const allCampaigns = db.prepare("SELECT id, name FROM campaigns").all();
+const allInfluencers = await q("SELECT id, name FROM influencers WHERE status='approved'");
+const allCampaigns = await q("SELECT id, name FROM campaigns");
 
 const platforms = ['Instagram', 'TikTok', 'YouTube', 'LinkedIn'];
 const samplePosts = [
@@ -268,7 +273,7 @@ const samplePosts = [
 ];
 
 for (const inf of allInfluencers) {
-  const existingPosts = db.prepare('SELECT COUNT(*) as c FROM post_submissions WHERE influencer_id=?').get(inf.id).c;
+  const existingPosts = (await one('SELECT COUNT(*)::int AS c FROM post_submissions WHERE influencer_id=$1', [inf.id])).c;
   if (existingPosts > 0) continue;
   const numPosts = Math.floor(Math.random() * 4) + 2;
   for (let i = 0; i < numPosts && i < samplePosts.length; i++) {
@@ -277,20 +282,20 @@ for (const inf of allInfluencers) {
     const daysAgo = Math.floor(Math.random() * 60);
     const date = new Date();
     date.setDate(date.getDate() - daysAgo);
-    db.prepare(`
+    await q(`
       INSERT INTO post_submissions (influencer_id, campaign_id, platform, post_url, date_posted, impressions, notes, status)
-      VALUES (?,?,?,?,?,?,?,?)
-    `).run(inf.id, campaign.id, post.platform, post.post_url, date.toISOString().split('T')[0], post.impressions, post.notes, post.status);
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+    `, [inf.id, campaign.id, post.platform, post.post_url, date.toISOString().split('T')[0], post.impressions, post.notes, post.status]);
   }
   console.log(`Created posts for: ${inf.name}`);
 }
 
 console.log('\nSeed complete!');
-console.log('\nTeam login credentials:');
-console.log('  Username: admin | Password: lovepop2024');
-console.log('  Username: team  | Password: ambassador123');
+console.log('\nTeam sign-in: open /team (local dev mode signs you in as Local Dev).');
 console.log('\nInfluencer logins:');
 console.log('  sophie@example.com / sophie123');
 console.log('  marcus@example.com / marcus123');
 console.log('  priya@example.com  / priya123');
 console.log('  amanda@example.com / amanda123');
+
+await closeDb();

@@ -4,7 +4,7 @@
     {
       "name": "ambassador",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["--experimental-sqlite", "server.js"],
+      "runtimeArgs": ["server/index.js"],
       "port": 3001,
       "autoPort": false
     }
