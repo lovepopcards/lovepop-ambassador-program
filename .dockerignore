@@ -1,0 +1,15 @@
+node_modules
+.data
+data
+test
+infra
+.circleci
+.claude
+.env
+.env.*
+.git
+*.db
+*.db-shm
+*.db-wal
+*.log
+.DS_Store

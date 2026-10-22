@@ -26,11 +26,14 @@ A full-stack web application for managing Lovepop brand ambassadors and influenc
 
 ## Tech Stack
 
-- **Backend**: Node.js + Express
-- **Database**: SQLite via Node's built-in `node:sqlite` (Node 22+)
-- **Auth**: JWT (jsonwebtoken) + bcrypt
-- **File uploads**: multer (local filesystem)
-- **Frontend**: Vanilla JS + HTML + CSS (same design system as Lovepop Character Builder)
+- **Backend**: Node.js 22 + Express 4 (`server/`: `app.js` routes, `auth.js` sessions, `db.js`, `mediaStore.js`)
+- **Database**: Postgres — the `ambassador` database on the data-team RDS cluster in production;
+  embedded PGlite (`.data/pglite`) locally and in tests. Schema: `server/migrations/*.sql`, applied on boot.
+- **Auth**: Lovepop team via the conan-edogawa SSO broker (`/team`); ambassadors with email + bcrypt
+  password. Both are httpOnly cookie sessions (see `server/auth.js`).
+- **File uploads**: multer → S3 `s3://prod-segment-model-store/ambassador/uploads/` in production
+  (local folder `data/uploads` otherwise), served back through the app; contracts are team-only.
+- **Frontend**: Vanilla JS + HTML + CSS (`public/`); the server injects `BASE_PATH` into `index.html`.
 
 ## Getting Started
 
@@ -41,25 +44,26 @@ A full-stack web application for managing Lovepop brand ambassadors and influenc
 
 ```bash
 npm install
-npm run seed    # Load sample data (influencers, campaigns, posts)
-npm start       # Start on http://localhost:3001
+npm test        # hermetic: embedded Postgres, no network
+npm run seed    # local demo data (refuses when DATABASE_URL or NODE_ENV=production is set)
+npm start       # http://localhost:3001
 ```
 
-### Default Credentials
+Run locally **without** `DATABASE_URL` in your shell (the server refuses any database that is not
+`ambassador`). Team sign-in locally: open http://localhost:3001/team (dev mode signs you in as
+"Local Dev"). Demo ambassador logins are printed by `npm run seed`.
 
-**Team logins:**
-| Username | Password |
-|----------|----------|
-| `admin`  | `lovepop2024` |
-| `team`   | `ambassador123` |
+## Production
 
-**Influencer logins (approved, from seed data):**
-| Email | Password |
-|-------|----------|
-| `sophie@example.com` | `sophie123` |
-| `marcus@example.com` | `marcus123` |
-| `priya@example.com`  | `priya123` |
-| `amanda@example.com` | `amanda123` |
+Served at **https://admin.lovepop.com/ambassador** (ECS `ambassador-data-service`, admin-alb priority 31),
+deployed by CircleCI on every merge to `main` (merge commits only). Config: `infra/prod.yaml`;
+secrets: SSM `/ambassador/*` (`infra/scripts/put_ssm_params.py`). The server refuses to start behind
+`BASE_PATH` unless SSO and both session secrets are set. Migration record: `AWS_MIGRATION.md`.
+
+- Team: **Lovepop team** tab → "Continue with your Lovepop Google account".
+- Ambassadors: public landing page and application form; they sign in with the password the team
+  sets when approving them.
+- `/healthz` (unprefixed) is the ALB health check.
 
 ## Tier System
 
@@ -73,34 +77,21 @@ Tier is calculated as: `score = total_approved_posts + (total_impressions / 10,0
 | Platinum | 75+ |
 | Diamond | 150+ |
 
-## Deployment to Railway
-
-1. Create a new Railway project and connect this repo
-2. Add a **Volume** mounted at `/data`
-3. Set environment variables:
-   - `DB_PATH=/data/ambassador.db`
-   - `JWT_SECRET=<strong-random-string>`
-   - `TEAM_USERS=[{"username":"yourname","password":"yourpassword","name":"Your Name"}]`
-4. Deploy — Railway will auto-detect Node.js and use `railway.toml` settings
-
-## Environment Variables
-
-See `.env.example` for all available configuration options.
-
 ## Project Structure
 
 ```
 /
-├── public/
-│   ├── index.html      # Single-page app (landing + dashboard)
-│   ├── style.css       # Design system (matches Character Builder)
-│   ├── app.js          # Frontend application logic
-│   └── uploads/        # Uploaded files (contracts, screenshots, assets)
-├── scripts/
-│   └── seed.js         # Database seeding with sample data
-├── database.js         # SQLite schema + migrations
-├── server.js           # Express API server
-├── package.json
-├── railway.toml        # Railway deployment config
-└── .env.example        # Environment variable documentation
+├── public/                 # single-page app (landing + both dashboards)
+├── server/
+│   ├── index.js            # boot: config check, DB, listen
+│   ├── app.js              # Express app + API routes
+│   ├── auth.js             # team SSO + ambassador sessions
+│   ├── db.js               # pg / PGlite adapter + migrations
+│   ├── mediaStore.js       # uploads (S3 or local folder)
+│   └── migrations/         # SQL schema
+├── scripts/seed.js         # local demo data
+├── test/                   # node:test suites
+├── infra/                  # terraform-module-ecs prod.yaml + SSM script
+├── .circleci/config.yml    # test → build → plan → apply → verify
+└── Dockerfile
 ```

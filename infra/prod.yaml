@@ -1,0 +1,66 @@
+### container configuration — Ambassador Program (influencer / ambassador management)
+microservices_name: "ambassador"
+type: "data"            # ECS service name → ambassador-data-service (default type is csharp)
+language: "nodejs"
+env: "prod"
+
+labels:
+  team: "marketing"
+  function: "ambassador-program"
+  feature: "ambassador"
+
+cluster_name: "prod-cluster"
+
+networking:
+  vpc_id: "vpc-7d849d19"
+  loadbalancers:
+    - name: "admin-alb"
+      rules:
+        - path_patterns:
+            - "/ambassador"
+            - "/ambassador/*"
+          # Must be unique on admin-alb's :443 listener. Live on 2026-10-22: 1, 10–17, 20–25, 27–30, 100;
+          # 18 (john-thought-leadership) and 26 (lp_psd_automation) are claimed by open PRs.
+          priority: 31
+
+application_specs:
+  container_port: 3001
+  cpu: 256
+  memory: 512
+  desired_count: 1
+  autoscaling_enabled: false
+  health_check_uri: "/healthz"
+  health_check_port: "3001"
+
+env_variables:
+  - name: "PORT"
+    value: "3001"
+  - name: "BASE_PATH"
+    value: "/ambassador"
+  - name: "APP_URL"
+    value: "https://admin.lovepop.com/ambassador"
+  - name: "AUTH_MODE"
+    value: "sso"
+  - name: "SSO_TICKET_AUDIENCE"
+    value: "https://admin.lovepop.com"
+  - name: "SSO_AUTHORIZE_URL"
+    value: "https://authentication.lovepopcards.com/sso/authorize"
+  # Contracts, campaign images and post screenshots (server/mediaStore.js), served back through the
+  # app at /ambassador/uploads/... so the bucket stays private. Access comes from the ECS instance role
+  # (prod-ecs-instance-role: s3:* on *), the same as idea-lab's s3://prod-segment-model-store/idea-lab/.
+  - name: "UPLOADS_S3_URI"
+    value: "s3://prod-segment-model-store/ambassador/uploads/"
+  # The AWS SDK needs a region and ECS does not always inject one.
+  - name: "AWS_REGION"
+    value: "us-west-2"
+
+# SSM Parameter Store names — every one must exist before the task can start (infra/scripts/put_ssm_params.py).
+secrets_variables:
+  - name: "DATABASE_URL"
+    value_from: "/ambassador/database_url"
+  - name: "SSO_TICKET_SECRET"            # must equal conan-edogawa's /prod/central-login/sso_ticket_secret
+    value_from: "/ambassador/sso_ticket_secret"
+  - name: "TEAM_SESSION_SECRET"
+    value_from: "/ambassador/team_session_secret"
+  - name: "INFLUENCER_SESSION_SECRET"
+    value_from: "/ambassador/influencer_session_secret"

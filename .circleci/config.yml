@@ -1,0 +1,81 @@
+version: 2.1
+
+# Tests every branch; deploys the ambassador program to ECS (prod-cluster, behind admin-alb at
+# admin.lovepop.com/ambassador) on every push to main: build + push to ECR → terraform plan →
+# apply → verify service. Same pipeline as lovepop-idea-lab and lovepop-google-ads. No manual
+# approval: a green plan applies straight to prod.
+
+orbs:
+  lovepop: lovepop/lovepop-orb@1.0.29
+
+jobs:
+  test:
+    docker:
+      - image: cimg/node:22.12
+    steps:
+      - checkout
+      - run:
+          name: Install
+          command: npm ci
+      - run:
+          name: Test
+          command: npm test
+
+workflows:
+  version: 2.1
+
+  deploy_ambassador:
+    jobs:
+      - test
+      # Creates the ECR repo + lifecycle policy if missing (terraform-module-ecs v0.0.12 no
+      # longer does). image_repo must equal prod.yaml microservices_name.
+      - lovepop/build_custom:
+          name: build-push-ambassador
+          context: aws-production
+          dockerfile_path: Dockerfile
+          build_context: .
+          image_repo: ambassador
+          image_tag: ${CIRCLE_BRANCH}.${GIT_SHA}
+          # The orb sets GIT_SHA in the build step's shell; the Dockerfile bakes it into APP_COMMIT
+          # (shown by /healthz).
+          build_args: --build-arg GIT_SHA=${GIT_SHA}
+          requires:
+            - test
+          filters:
+            branches:
+              only:
+                - main
+      - lovepop/terraform_init_plan:
+          name: terraform-plan-ambassador-prod
+          context: aws-production
+          folder: infra
+          remote_config_key: ambassador
+          terraform_plan_config: '-var "image_tag=${CIRCLE_BRANCH}.${GIT_SHA}" --lock-timeout=5m --out=terraform.plan'
+          requires:
+            - build-push-ambassador
+          filters:
+            branches:
+              only:
+                - main
+      - lovepop/terraform_apply:
+          name: apply-ambassador-prod
+          context: aws-production
+          folder: infra
+          requires:
+            - terraform-plan-ambassador-prod
+          filters:
+            branches:
+              only:
+                - main
+      - lovepop/verify_deployment:
+          name: deploy_service_check_prod_ambassador
+          cluster_name: prod-cluster
+          # The orb's default is '<service_name>-csharp-service'; this service is type "data".
+          custom_service_name: ambassador-data-service
+          requires:
+            - apply-ambassador-prod
+          context: aws-production
+          filters:
+            branches:
+              only:
+                - main

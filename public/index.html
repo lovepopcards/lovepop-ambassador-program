@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Playfair+Display:wght@400;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="%BASE_PATH%/style.css" />
 </head>
 <body>
 
@@ -366,11 +366,11 @@
           <button class="login-type-btn" id="btn-team-login" onclick="App.setLoginType('team')">Lovepop Team</button>
         </div>
 
+        <div id="team-sso-group" style="display:none">
+          <a class="btn-submit" href="%BASE_PATH%/team" style="display:block;text-align:center;text-decoration:none">Continue with your Lovepop Google account</a>
+        </div>
+
         <form id="login-form" onsubmit="App.submitLogin(event)">
-          <div id="team-username-group" class="form-group" style="display:none">
-            <label class="form-label">Username</label>
-            <input type="text" id="login-username" class="form-input" placeholder="Username" />
-          </div>
           <div class="form-group">
             <label class="form-label">Email</label>
             <input type="email" id="login-email" class="form-input" placeholder="you@example.com" />
@@ -860,6 +860,7 @@
   <!-- Toast notification -->
   <div id="toast" class="toast" style="display:none"></div>
 
-  <script src="/app.js"></script>
+  <script>window.BASE_PATH = %BASE_PATH_JSON%;</script>
+  <script src="%BASE_PATH%/app.js"></script>
 </body>
 </html>

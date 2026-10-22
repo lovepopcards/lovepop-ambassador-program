@@ -5,7 +5,8 @@
 const App = (() => {
 
   // ── State ──────────────────────────────────────────────────
-  let token = localStorage.getItem('lp_token') || null;
+  // Served under admin.lovepop.com/ambassador: every URL the page builds carries this prefix.
+  const BASE = window.BASE_PATH || '';
   let currentUser = null;
   let influencers = [];
   let campaigns = [];
@@ -28,13 +29,12 @@ const App = (() => {
   // ── API helpers ────────────────────────────────────────────
   async function api(path, opts = {}) {
     const headers = { 'Content-Type': 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    const res = await fetch(path, { ...opts, headers: { ...headers, ...(opts.headers || {}) } });
+    const res = await fetch(BASE + path, { ...opts, credentials: 'same-origin', headers: { ...headers, ...(opts.headers || {}) } });
     const json = await res.json().catch(() => ({}));
     if (res.status === 401) {
       // If we have an active session it's expired — log out silently.
-      // If there's no token it's a failed login attempt — surface the error.
-      if (token) { logout(); return null; }
+      // If nobody is signed in it's a failed login attempt — surface the error.
+      if (currentUser) { logout(); return null; }
       throw new Error(json.error || 'Invalid email or password.');
     }
     if (res.status === 403) throw new Error(json.error || 'Access denied.');
@@ -43,9 +43,7 @@ const App = (() => {
   }
 
   async function apiForm(path, formData, method = 'POST') {
-    const headers = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    const res = await fetch(path, { method, headers, body: formData });
+    const res = await fetch(BASE + path, { method, credentials: 'same-origin', body: formData });
     if (res.status === 401) { logout(); return null; }
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json.error || 'Request failed');
@@ -92,11 +90,12 @@ const App = (() => {
     loginType = type;
     document.getElementById('btn-influencer-login').classList.toggle('active', type === 'influencer');
     document.getElementById('btn-team-login').classList.toggle('active', type === 'team');
-    document.getElementById('team-username-group').style.display = type === 'team' ? 'block' : 'none';
-    const emailGroup = document.getElementById('login-email').closest('.form-group');
-    emailGroup.style.display = type === 'team' ? 'none' : 'block';
-    // Remove required from hidden field to avoid native form validation blocking submit
+    // The team signs in with Lovepop Google (SSO at /team); ambassadors use email + password.
+    document.getElementById('team-sso-group').style.display = type === 'team' ? 'block' : 'none';
+    document.getElementById('login-form').style.display = type === 'team' ? 'none' : 'block';
+    // Remove required from hidden fields to avoid native form validation blocking submit
     document.getElementById('login-email').required = type === 'influencer';
+    document.getElementById('login-password').required = type === 'influencer';
   }
 
   async function submitLogin(e) {
@@ -106,25 +105,12 @@ const App = (() => {
     errEl.style.display = 'none';
     btn.disabled = true; btn.textContent = 'Signing in...';
     try {
-      let data;
-      if (loginType === 'team') {
-        const username = document.getElementById('login-username').value;
-        const password = document.getElementById('login-password').value;
-        data = await api('/api/auth/team-login', { method: 'POST', body: JSON.stringify({ username, password }) });
-      } else {
-        const email = document.getElementById('login-email').value;
-        const password = document.getElementById('login-password').value;
-        data = await api('/api/auth/influencer-login', { method: 'POST', body: JSON.stringify({ email, password }) });
-      }
+      const email = document.getElementById('login-email').value;
+      const password = document.getElementById('login-password').value;
+      const data = await api('/api/auth/influencer-login', { method: 'POST', body: JSON.stringify({ email, password }) });
       if (!data) return;
-      token = data.token;
       currentUser = { role: data.role, name: data.name, id: data.id };
-      localStorage.setItem('lp_token', token);
-      if (data.role === 'team') {
-        initTeamDashboard();
-      } else {
-        initInfluencerDashboard();
-      }
+      initInfluencerDashboard();
     } catch (err) {
       errEl.textContent = err.message;
       errEl.style.display = 'block';
@@ -134,13 +120,17 @@ const App = (() => {
   }
 
   function logout() {
-    token = null; currentUser = null; influencers = []; campaigns = []; posts = [];
-    localStorage.removeItem('lp_token');
+    currentUser = null; influencers = []; campaigns = []; posts = [];
+    fetch(BASE + '/api/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
     showLanding();
   }
 
+  // Uploads are stored as '/uploads/...'; the page is served under BASE.
+  function fileUrl(path) {
+    return path && path.startsWith('/uploads/') ? BASE + path : path;
+  }
+
   async function checkAuth() {
-    if (!token) return false;
     try {
       const user = await api('/api/auth/me');
       if (!user) return false;
@@ -515,7 +505,7 @@ const App = (() => {
                 <span class="contract-icon">📄</span>
                 <span class="contract-name">${esc(c.filename)}</span>
                 <span class="contract-date">${formatDate(c.uploaded_at)}</span>
-                <a href="${c.path}" target="_blank" class="contract-link">Download</a>
+                <a href="${fileUrl(c.path)}" target="_blank" class="contract-link">Download</a>
               </div>
             `).join('')
           }
@@ -802,7 +792,7 @@ const App = (() => {
     const assets = c.image_assets || [];
     const skus = c.sku_designations || [];
     return `
-      ${assets.length > 0 ? `<img src="${assets[0].path}" class="camp-detail-image" alt="Campaign image" onerror="this.style.display='none'" />` : ''}
+      ${assets.length > 0 ? `<img src="${fileUrl(assets[0].path)}" class="camp-detail-image" alt="Campaign image" onerror="this.style.display='none'" />` : ''}
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
         ${campaignStatusBadge(c.computed_status)}
         <span style="font-size:12px;color:var(--gray)">${formatDateRange(c.start_date, c.end_date)}</span>
@@ -841,7 +831,7 @@ const App = (() => {
         <div class="camp-detail-section">
           <div class="camp-detail-label">Marketing Assets</div>
           <div style="display:flex;gap:10px;flex-wrap:wrap">
-            ${assets.map(a => `<a href="${a.path}" target="_blank" style="font-size:12px;color:var(--coral);font-weight:600">📎 ${esc(a.filename)}</a>`).join('')}
+            ${assets.map(a => `<a href="${fileUrl(a.path)}" target="_blank" style="font-size:12px;color:var(--coral);font-weight:600">📎 ${esc(a.filename)}</a>`).join('')}
           </div>
         </div>
       ` : ''}
@@ -939,7 +929,7 @@ const App = (() => {
         <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px">
           ${assets.map(a => `
             <div style="text-align:center">
-              <img src="${a.path}" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid var(--sand-mid)" onerror="this.style.display='none'" />
+              <img src="${fileUrl(a.path)}" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid var(--sand-mid)" onerror="this.style.display='none'" />
               <div style="font-size:10px;color:var(--gray);margin-top:4px;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.filename)}</div>
             </div>
           `).join('')}
@@ -1150,7 +1140,7 @@ const App = (() => {
               <tr>
                 <td>
                   ${p.screenshot_path
-                    ? `<img src="${p.screenshot_path}" class="post-screenshot-thumb" alt="screenshot" />`
+                    ? `<img src="${fileUrl(p.screenshot_path)}" class="post-screenshot-thumb" alt="screenshot" />`
                     : `<div class="no-screenshot">📱</div>`
                   }
                 </td>
@@ -1437,7 +1427,7 @@ const App = (() => {
     container.innerHTML = `<div class="posts-list">${myPosts.map(p => `
       <div class="post-card">
         ${p.screenshot_path
-          ? `<img src="${p.screenshot_path}" class="post-card-thumb" alt="Post screenshot" />`
+          ? `<img src="${fileUrl(p.screenshot_path)}" class="post-card-thumb" alt="Post screenshot" />`
           : `<div class="post-card-no-thumb">📱</div>`
         }
         <div class="post-card-info">
@@ -1608,21 +1598,11 @@ const App = (() => {
   // INIT
   // ═══════════════════════════════════════════════════════════
   async function init() {
-    // Check if already logged in
-    if (token) {
-      const authed = await checkAuth();
-      if (authed && currentUser) {
-        if (currentUser.role === 'team') {
-          await initTeamDashboard();
-          return;
-        } else if (currentUser.role === 'influencer') {
-          await initInfluencerDashboard();
-          return;
-        }
-      } else {
-        localStorage.removeItem('lp_token'); token = null;
-      }
-    }
+    // A session cookie (team via /team, or an ambassador login) lands straight on its dashboard.
+    const authed = await checkAuth();
+    if (authed && currentUser?.role === 'team') { await initTeamDashboard(); return; }
+    if (authed && currentUser?.role === 'influencer') { await initInfluencerDashboard(); return; }
+    currentUser = null;
     showLanding();
   }
 
